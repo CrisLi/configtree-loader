@@ -1,17 +1,16 @@
 import { readdirSync, readFileSync, statSync } from "fs";
 import { readdir, readFile, stat } from "fs/promises";
-import { join, relative, sep } from "path";
+import { basename, join } from "path";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 /**
- * A nested config object. Values are always strings (trimmed file contents).
- * Intermediate nodes are always plain objects.
+ * A flat map of string keys to string values.
+ * Each key is a filename; each value is the trimmed file content.
  */
-export type ConfigValue = string | ConfigObject;
-export type ConfigObject = { [key: string]: ConfigValue };
+export type ConfigObject = Record<string, string>;
 
 export interface LoadOptions {
   /**
@@ -26,83 +25,55 @@ export interface LoadOptions {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Recursively sets a value at a key path on an object, creating intermediate
- * objects as needed.
- *
- * Throws if a path segment collides with an existing string value.
- */
-function setNested(obj: ConfigObject, pathParts: string[], value: string): void {
-  let current = obj;
-  for (let i = 0; i < pathParts.length - 1; i++) {
-    const part = pathParts[i] as string;
-    if (!(part in current)) {
-      current[part] = {} as ConfigObject;
-    }
-    const next = current[part];
-    if (next === undefined) {
-      // Should never happen — we just assigned it above if it was missing
-      throw new Error(`configtree-loader: unexpected undefined at key "${part}"`);
-    }
-    if (typeof next === "string") {
-      throw new Error(
-        `configtree-loader: path conflict at "${pathParts.slice(0, i + 1).join(".")}" — ` +
-          `a file and a directory share the same name`,
-      );
-    }
-    current = next;
-  }
-  const lastPart = pathParts[pathParts.length - 1] as string;
-  current[lastPart] = value;
-}
-
-/** Synchronously walk a directory tree, returning all file paths. */
-function walkSync(dir: string): string[] {
-  const results: string[] = [];
-  const entries = readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...walkSync(fullPath));
-    } else if (entry.isFile()) {
-      results.push(fullPath);
-    }
-    // Symlinks and other special files are intentionally ignored
-  }
-  return results;
-}
-
-/** Asynchronously walk a directory tree, returning all file paths. */
-async function walkAsync(dir: string): Promise<string[]> {
-  const results: string[] = [];
-  const entries = await readdir(dir, { withFileTypes: true });
-  await Promise.all(
-    entries.map(async (entry) => {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        const sub = await walkAsync(fullPath);
-        results.push(...sub);
-      } else if (entry.isFile()) {
-        results.push(fullPath);
-      }
-    }),
-  );
-  return results;
-}
-
-/**
- * Convert an absolute file path to an array of key segments relative to root.
- *
- * @example
- * toKeyParts("/etc/config", "/etc/config/db/credentials/username")
- * // => ["db", "credentials", "username"]
- */
-function toKeyParts(root: string, filePath: string): string[] {
-  return relative(root, filePath).split(sep);
-}
-
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && "code" in err;
+}
+
+/** Check that a path is an existing directory. Returns false if missing and optional=true. */
+function checkDirSync(dirPath: string, optional: boolean): boolean {
+  try {
+    const s = statSync(dirPath);
+    if (!s.isDirectory()) {
+      throw new Error(`configtree-loader: path is not a directory: ${dirPath}`);
+    }
+    return true;
+  } catch (err: unknown) {
+    if (isNodeError(err) && err.code === "ENOENT") {
+      if (optional) return false;
+      throw new Error(`configtree-loader: directory not found: ${dirPath}`);
+    }
+    throw err;
+  }
+}
+
+/** Check that a path is an existing directory. Returns false if missing and optional=true. */
+async function checkDirAsync(dirPath: string, optional: boolean): Promise<boolean> {
+  try {
+    const s = await stat(dirPath);
+    if (!s.isDirectory()) {
+      throw new Error(`configtree-loader: path is not a directory: ${dirPath}`);
+    }
+    return true;
+  } catch (err: unknown) {
+    if (isNodeError(err) && err.code === "ENOENT") {
+      if (optional) return false;
+      throw new Error(`configtree-loader: directory not found: ${dirPath}`);
+    }
+    throw err;
+  }
+}
+
+/** Return paths of direct files in a directory (subdirectories are skipped). */
+function listFilesSync(dirPath: string): string[] {
+  return readdirSync(dirPath, { withFileTypes: true })
+    .filter((e) => e.isFile())
+    .map((e) => join(dirPath, e.name));
+}
+
+/** Return paths of direct files in a directory (subdirectories are skipped). */
+async function listFilesAsync(dirPath: string): Promise<string[]> {
+  const entries = await readdir(dirPath, { withFileTypes: true });
+  return entries.filter((e) => e.isFile()).map((e) => join(dirPath, e.name));
 }
 
 // ---------------------------------------------------------------------------
@@ -110,87 +81,80 @@ function isNodeError(err: unknown): err is NodeJS.ErrnoException {
 // ---------------------------------------------------------------------------
 
 /**
- * Synchronously load a configtree directory into a nested config object.
+ * Synchronously load one or more configtree directories into a flat config object.
  *
- * Each file's path relative to `dirPath` becomes a nested key, and the
- * file's content (trimmed) becomes the value.
+ * Only direct files are read — subdirectories are ignored. Each filename
+ * becomes a key and the file's trimmed content becomes the value. When
+ * multiple directories are provided, later directories overwrite earlier ones
+ * for the same key.
  *
  * @example
- * // Directory: /etc/config/db/host → "localhost", /etc/config/db/port → "5432"
- * const config = loadConfigTreeSync("/etc/config");
- * // => { db: { host: "localhost", port: "5432" } }
+ * // /etc/config/db/DATABASE_HOST → "localhost"
+ * // /etc/config/db/DATABASE_PORT → "5432"
+ * const config = loadConfigTreeSync("/etc/config/db");
+ * // => { DATABASE_HOST: "localhost", DATABASE_PORT: "5432" }
+ *
+ * @example
+ * // Merge multiple config trees; later entries win on conflict
+ * const config = loadConfigTreeSync(["/etc/config/db", "/etc/config/overrides"]);
  */
-export function loadConfigTreeSync(dirPath: string, options: LoadOptions = {}): ConfigObject {
+export function loadConfigTreeSync(
+  dirPath: string | string[],
+  options: LoadOptions = {},
+): ConfigObject {
   const { optional = false } = options;
-
-  try {
-    const s = statSync(dirPath);
-    if (!s.isDirectory()) {
-      throw new Error(`configtree-loader: path is not a directory: ${dirPath}`);
-    }
-  } catch (err: unknown) {
-    if (isNodeError(err) && err.code === "ENOENT") {
-      if (optional) return {};
-      throw new Error(`configtree-loader: directory not found: ${dirPath}`);
-    }
-    throw err;
-  }
-
+  const paths = Array.isArray(dirPath) ? dirPath : [dirPath];
   const result: ConfigObject = {};
-  const files = walkSync(dirPath);
 
-  for (const filePath of files) {
-    const parts = toKeyParts(dirPath, filePath);
-    const raw = readFileSync(filePath, "utf8");
-    setNested(result, parts, raw.trim());
+  for (const p of paths) {
+    if (!checkDirSync(p, optional)) continue;
+    for (const filePath of listFilesSync(p)) {
+      result[basename(filePath)] = readFileSync(filePath, "utf8").trim();
+    }
   }
 
   return result;
 }
 
 /**
- * Asynchronously load a configtree directory into a nested config object.
+ * Asynchronously load one or more configtree directories into a flat config object.
  *
- * Each file's path relative to `dirPath` becomes a nested key, and the
- * file's content (trimmed) becomes the value.
+ * Only direct files are read — subdirectories are ignored. Each filename
+ * becomes a key and the file's trimmed content becomes the value. When
+ * multiple directories are provided, later directories overwrite earlier ones
+ * for the same key.
  *
  * @example
- * // Directory: /etc/config/db/host → "localhost", /etc/config/db/port → "5432"
- * const config = await loadConfigTree("/etc/config");
- * // => { db: { host: "localhost", port: "5432" } }
+ * // /etc/config/db/DATABASE_HOST → "localhost"
+ * // /etc/config/db/DATABASE_PORT → "5432"
+ * const config = await loadConfigTree("/etc/config/db");
+ * // => { DATABASE_HOST: "localhost", DATABASE_PORT: "5432" }
+ *
+ * @example
+ * // Merge multiple config trees; later entries win on conflict
+ * const config = await loadConfigTree(["/etc/config/db", "/etc/config/overrides"]);
  */
 export async function loadConfigTree(
-  dirPath: string,
+  dirPath: string | string[],
   options: LoadOptions = {},
 ): Promise<ConfigObject> {
   const { optional = false } = options;
-
-  try {
-    const s = await stat(dirPath);
-    if (!s.isDirectory()) {
-      throw new Error(`configtree-loader: path is not a directory: ${dirPath}`);
-    }
-  } catch (err: unknown) {
-    if (isNodeError(err) && err.code === "ENOENT") {
-      if (optional) return {};
-      throw new Error(`configtree-loader: directory not found: ${dirPath}`);
-    }
-    throw err;
-  }
-
-  const files = await walkAsync(dirPath);
-
-  // Read all files in parallel, then assemble result serially to avoid races
-  const entries = await Promise.all(
-    files.map(async (filePath) => {
-      const raw = await readFile(filePath, "utf8");
-      return { parts: toKeyParts(dirPath, filePath), value: raw.trim() };
-    }),
-  );
-
+  const paths = Array.isArray(dirPath) ? dirPath : [dirPath];
   const result: ConfigObject = {};
-  for (const { parts, value } of entries) {
-    setNested(result, parts, value);
+
+  for (const p of paths) {
+    if (!(await checkDirAsync(p, optional))) continue;
+    const files = await listFilesAsync(p);
+    const entries = await Promise.all(
+      files.map(async (filePath) => ({
+        key: basename(filePath),
+        value: (await readFile(filePath, "utf8")).trim(),
+      })),
+    );
+    for (const { key, value } of entries) {
+      result[key] = value;
+    }
   }
+
   return result;
 }

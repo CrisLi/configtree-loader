@@ -25,56 +25,60 @@ function writeFile(relPath: string, content: string): void {
   writeFileSync(fullPath, content, "utf8");
 }
 
+/** Create a subdirectory of tmpDir and return its path. */
+function makeDir(relPath: string): string {
+  const fullPath = join(tmpDir, relPath);
+  mkdirSync(fullPath, { recursive: true });
+  return fullPath;
+}
+
 // ---------------------------------------------------------------------------
-// Sync API
+// Sync API — single path
 // ---------------------------------------------------------------------------
 
-describe("loadConfigTreeSync", () => {
+describe("loadConfigTreeSync — single path", () => {
   it("returns an empty object for an empty directory", () => {
     expect(loadConfigTreeSync(tmpDir)).toEqual({});
   });
 
   it("reads flat files into a flat object", () => {
-    writeFile("host", "localhost");
-    writeFile("port", "5432");
-    expect(loadConfigTreeSync(tmpDir)).toEqual({ host: "localhost", port: "5432" });
-  });
-
-  it("reads nested directories into nested objects", () => {
-    writeFile("db/host", "localhost");
-    writeFile("db/port", "5432");
-    writeFile("db/credentials/username", "admin");
-    writeFile("db/credentials/password", "secret");
+    writeFile("DATABASE_HOST", "localhost");
+    writeFile("DATABASE_PORT", "5432");
     expect(loadConfigTreeSync(tmpDir)).toEqual({
-      db: {
-        host: "localhost",
-        port: "5432",
-        credentials: {
-          username: "admin",
-          password: "secret",
-        },
-      },
+      DATABASE_HOST: "localhost",
+      DATABASE_PORT: "5432",
     });
   });
 
+  it("ignores subdirectories", () => {
+    writeFile("DATABASE_HOST", "localhost");
+    writeFile("subdir/NESTED_KEY", "should-be-ignored");
+    expect(loadConfigTreeSync(tmpDir)).toEqual({ DATABASE_HOST: "localhost" });
+  });
+
   it("trims leading and trailing whitespace from file values", () => {
-    writeFile("key", "  value with spaces  \n");
-    expect(loadConfigTreeSync(tmpDir)).toEqual({ key: "value with spaces" });
+    writeFile("KEY", "  value with spaces  \n");
+    expect(loadConfigTreeSync(tmpDir)).toEqual({ KEY: "value with spaces" });
   });
 
   it("trims newlines surrounding the value", () => {
-    writeFile("token", "\n  abc123  \n");
-    expect(loadConfigTreeSync(tmpDir)).toEqual({ token: "abc123" });
+    writeFile("TOKEN", "\n  abc123  \n");
+    expect(loadConfigTreeSync(tmpDir)).toEqual({ TOKEN: "abc123" });
+  });
+
+  it("preserves inner newlines within a value (only trims edges)", () => {
+    writeFile("MULTILINE", "line1\nline2\nline3");
+    expect(loadConfigTreeSync(tmpDir)).toEqual({ MULTILINE: "line1\nline2\nline3" });
   });
 
   it("handles empty file values (trimmed to empty string)", () => {
-    writeFile("empty", "");
-    expect(loadConfigTreeSync(tmpDir)).toEqual({ empty: "" });
+    writeFile("EMPTY", "");
+    expect(loadConfigTreeSync(tmpDir)).toEqual({ EMPTY: "" });
   });
 
   it("handles files with only whitespace (trimmed to empty string)", () => {
-    writeFile("blank", "   \n  ");
-    expect(loadConfigTreeSync(tmpDir)).toEqual({ blank: "" });
+    writeFile("BLANK", "   \n  ");
+    expect(loadConfigTreeSync(tmpDir)).toEqual({ BLANK: "" });
   });
 
   it("throws for a non-existent directory without optional flag", () => {
@@ -95,73 +99,85 @@ describe("loadConfigTreeSync", () => {
       "configtree-loader: path is not a directory",
     );
   });
+});
 
-  it("handles deeply nested paths", () => {
-    writeFile("a/b/c/d/e", "deep");
-    expect(loadConfigTreeSync(tmpDir)).toEqual({
-      a: { b: { c: { d: { e: "deep" } } } },
+// ---------------------------------------------------------------------------
+// Sync API — array of paths
+// ---------------------------------------------------------------------------
+
+describe("loadConfigTreeSync — array of paths", () => {
+  it("merges files from multiple directories", () => {
+    const dir1 = makeDir("db");
+    const dir2 = makeDir("kafka");
+    writeFileSync(join(dir1, "DATABASE_HOST"), "localhost");
+    writeFileSync(join(dir2, "KAFKA_BOOTSTRAP_SERVERS"), "broker:9092");
+    expect(loadConfigTreeSync([dir1, dir2])).toEqual({
+      DATABASE_HOST: "localhost",
+      KAFKA_BOOTSTRAP_SERVERS: "broker:9092",
     });
   });
 
-  it("handles multiple top-level and nested keys mixed together", () => {
-    writeFile("app/name", "myapp");
-    writeFile("app/version", "1.0.0");
-    writeFile("debug", "true");
-    expect(loadConfigTreeSync(tmpDir)).toEqual({
-      app: { name: "myapp", version: "1.0.0" },
-      debug: "true",
-    });
+  it("later directory overwrites earlier directory for the same key", () => {
+    const dir1 = makeDir("base");
+    const dir2 = makeDir("override");
+    writeFileSync(join(dir1, "DATABASE_PASSWORD"), "base-password");
+    writeFileSync(join(dir2, "DATABASE_PASSWORD"), "override-password");
+    expect(loadConfigTreeSync([dir1, dir2])).toEqual({ DATABASE_PASSWORD: "override-password" });
   });
 
-  it("preserves inner newlines within a value (only trims edges)", () => {
-    writeFile("multiline", "line1\nline2\nline3");
-    expect(loadConfigTreeSync(tmpDir)).toEqual({ multiline: "line1\nline2\nline3" });
+  it("skips missing directories when optional: true", () => {
+    const dir1 = makeDir("real");
+    writeFileSync(join(dir1, "KEY"), "value");
+    expect(
+      loadConfigTreeSync([dir1, "/nonexistent/configtree-loader-xyz"], { optional: true }),
+    ).toEqual({ KEY: "value" });
+  });
+
+  it("throws on first missing directory when optional: false", () => {
+    const dir1 = makeDir("real");
+    writeFileSync(join(dir1, "KEY"), "value");
+    expect(() =>
+      loadConfigTreeSync([dir1, "/nonexistent/configtree-loader-xyz"]),
+    ).toThrow("configtree-loader: directory not found");
+  });
+
+  it("returns an empty object for an empty array", () => {
+    expect(loadConfigTreeSync([])).toEqual({});
   });
 });
 
 // ---------------------------------------------------------------------------
-// Async API
+// Async API — single path
 // ---------------------------------------------------------------------------
 
-describe("loadConfigTree (async)", () => {
+describe("loadConfigTree (async) — single path", () => {
   it("returns an empty object for an empty directory", async () => {
     await expect(loadConfigTree(tmpDir)).resolves.toEqual({});
   });
 
   it("reads flat files into a flat object", async () => {
-    writeFile("host", "localhost");
-    writeFile("port", "5432");
+    writeFile("DATABASE_HOST", "localhost");
+    writeFile("DATABASE_PORT", "5432");
     await expect(loadConfigTree(tmpDir)).resolves.toEqual({
-      host: "localhost",
-      port: "5432",
+      DATABASE_HOST: "localhost",
+      DATABASE_PORT: "5432",
     });
   });
 
-  it("reads nested directories into nested objects", async () => {
-    writeFile("db/host", "localhost");
-    writeFile("db/port", "5432");
-    writeFile("db/credentials/username", "admin");
-    writeFile("db/credentials/password", "secret");
-    await expect(loadConfigTree(tmpDir)).resolves.toEqual({
-      db: {
-        host: "localhost",
-        port: "5432",
-        credentials: {
-          username: "admin",
-          password: "secret",
-        },
-      },
-    });
+  it("ignores subdirectories", async () => {
+    writeFile("DATABASE_HOST", "localhost");
+    writeFile("subdir/NESTED_KEY", "should-be-ignored");
+    await expect(loadConfigTree(tmpDir)).resolves.toEqual({ DATABASE_HOST: "localhost" });
   });
 
   it("trims whitespace from file values", async () => {
-    writeFile("key", "  value  \n");
-    await expect(loadConfigTree(tmpDir)).resolves.toEqual({ key: "value" });
+    writeFile("KEY", "  value  \n");
+    await expect(loadConfigTree(tmpDir)).resolves.toEqual({ KEY: "value" });
   });
 
   it("handles empty file values (trimmed to empty string)", async () => {
-    writeFile("empty", "");
-    await expect(loadConfigTree(tmpDir)).resolves.toEqual({ empty: "" });
+    writeFile("EMPTY", "");
+    await expect(loadConfigTree(tmpDir)).resolves.toEqual({ EMPTY: "" });
   });
 
   it("throws for a non-existent directory without optional flag", async () => {
@@ -183,61 +199,71 @@ describe("loadConfigTree (async)", () => {
     );
   });
 
-  it("handles deeply nested paths", async () => {
-    writeFile("a/b/c/d/e", "deep");
-    await expect(loadConfigTree(tmpDir)).resolves.toEqual({
-      a: { b: { c: { d: { e: "deep" } } } },
-    });
-  });
-
   it("handles a large number of files in parallel", async () => {
     const expected: Record<string, string> = {};
     for (let i = 0; i < 50; i++) {
-      writeFile(`key${String(i)}`, `value${String(i)}`);
-      expected[`key${String(i)}`] = `value${String(i)}`;
+      writeFile(`KEY_${String(i)}`, `value${String(i)}`);
+      expected[`KEY_${String(i)}`] = `value${String(i)}`;
     }
-    const result = await loadConfigTree(tmpDir);
-    expect(result).toEqual(expected);
+    await expect(loadConfigTree(tmpDir)).resolves.toEqual(expected);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Path collision detection
+// Async API — array of paths
 // ---------------------------------------------------------------------------
 
-describe("path collision detection", () => {
-  it("throws when a file and a directory share the same path segment (sync)", () => {
-    // Create both a file named "db" and a directory "db/host"
-    writeFile("db/host", "localhost");
-    // Now create a file "db" — this will overwrite the directory, which
-    // can't actually happen on most OSes. Instead, we test the logical collision
-    // by creating a file "db" at the tmp root AFTER the directory exists.
-    // Since the OS won't allow "db" to be both file and dir, we simulate
-    // the collision by writing two paths that share a logical key segment:
-    // e.g., src/index.ts and src (a file named "src").
-    //
-    // The OS prevents true collisions, so we verify the error path by
-    // directly testing setNested via observable behavior:
-    // Create a layout where the walker produces: ["x"] and ["x", "y"]
-    // That requires "x" to be both a file and a dir — OS-impossible.
-    //
-    // Instead, verify the error message format is correct by checking
-    // that the error is thrown from a simulated conflict scenario
-    // through the public API with a mock-style setup.
-    //
-    // Practical approach: the test documents that the library throws
-    // on conflict; actual OS-level collision is not reproducible in tests.
-    expect(true).toBe(true); // Placeholder — see note above
+describe("loadConfigTree (async) — array of paths", () => {
+  it("merges files from multiple directories", async () => {
+    const dir1 = makeDir("db");
+    const dir2 = makeDir("kafka");
+    writeFileSync(join(dir1, "DATABASE_HOST"), "localhost");
+    writeFileSync(join(dir2, "KAFKA_BOOTSTRAP_SERVERS"), "broker:9092");
+    await expect(loadConfigTree([dir1, dir2])).resolves.toEqual({
+      DATABASE_HOST: "localhost",
+      KAFKA_BOOTSTRAP_SERVERS: "broker:9092",
+    });
   });
 
-  it("sync and async produce identical results for the same directory", async () => {
-    writeFile("service/host", "api.example.com");
-    writeFile("service/port", "443");
-    writeFile("service/tls/cert", "CERT_DATA");
-    writeFile("timeout", "30s");
+  it("later directory overwrites earlier directory for the same key", async () => {
+    const dir1 = makeDir("base");
+    const dir2 = makeDir("override");
+    writeFileSync(join(dir1, "DATABASE_PASSWORD"), "base-password");
+    writeFileSync(join(dir2, "DATABASE_PASSWORD"), "override-password");
+    await expect(loadConfigTree([dir1, dir2])).resolves.toEqual({
+      DATABASE_PASSWORD: "override-password",
+    });
+  });
 
-    const syncResult = loadConfigTreeSync(tmpDir);
-    const asyncResult = await loadConfigTree(tmpDir);
+  it("skips missing directories when optional: true", async () => {
+    const dir1 = makeDir("real");
+    writeFileSync(join(dir1, "KEY"), "value");
+    await expect(
+      loadConfigTree([dir1, "/nonexistent/configtree-loader-xyz"], { optional: true }),
+    ).resolves.toEqual({ KEY: "value" });
+  });
+
+  it("throws on first missing directory when optional: false", async () => {
+    const dir1 = makeDir("real");
+    writeFileSync(join(dir1, "KEY"), "value");
+    await expect(
+      loadConfigTree([dir1, "/nonexistent/configtree-loader-xyz"]),
+    ).rejects.toThrow("configtree-loader: directory not found");
+  });
+
+  it("returns an empty object for an empty array", async () => {
+    await expect(loadConfigTree([])).resolves.toEqual({});
+  });
+
+  it("sync and async produce identical results for the same paths", async () => {
+    const dir1 = makeDir("db");
+    const dir2 = makeDir("overrides");
+    writeFileSync(join(dir1, "DATABASE_HOST"), "localhost");
+    writeFileSync(join(dir1, "DATABASE_PORT"), "5432");
+    writeFileSync(join(dir2, "DATABASE_PORT"), "5433");
+
+    const syncResult = loadConfigTreeSync([dir1, dir2]);
+    const asyncResult = await loadConfigTree([dir1, dir2]);
     expect(syncResult).toEqual(asyncResult);
   });
 });
