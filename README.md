@@ -142,6 +142,75 @@ const config = await loadConfigTree(["/etc/config/db", "/etc/config/kafka", "/et
 });
 ```
 
+## `config` Singleton (v0.3.0+)
+
+`configtree-loader` ships a ready-to-use `config` singleton that combines a YAML config file with one or more configtree directories in a single import.
+
+### How it works
+
+On import, `config` reads a YAML file (default: `config/app.yaml` relative to `process.cwd()`), merges any configtree directories listed under the `configtrees` key, and exposes the result as an `AppConfig` object.
+
+```typescript
+import { config } from "configtree-loader";
+
+console.log(config.configtreeValues); // merged key→value pairs from all configtree dirs
+console.log(config.someYamlKey); // any other top-level key from app.yaml
+```
+
+### `config/app.yaml` format
+
+```yaml
+# Arbitrary top-level keys are passed through as-is
+environment: production
+region: us-east-1
+
+# configtrees is the special key: a list of directories to load
+configtrees:
+  - /etc/config/db
+  - /etc/config/kafka
+```
+
+The directories listed under `configtrees` are loaded with `loadConfigTreeSync` and merged into `configtreeValues`. Later entries overwrite earlier ones for the same key. The `configtrees` key itself is stripped from the final object.
+
+### `AppConfig` type
+
+```typescript
+interface AppConfig {
+  /** Merged key→value pairs loaded from all configured configtree directories. */
+  configtreeValues: Record<string, string>;
+  /** All other top-level keys from app.yaml. */
+  [key: string]: unknown;
+}
+```
+
+### Default file location and `APP_CONFIG_FILE`
+
+By default the singleton reads `config/app.yaml` relative to `process.cwd()`. Override this at runtime with the `APP_CONFIG_FILE` environment variable:
+
+```bash
+APP_CONFIG_FILE=/path/to/custom.yaml node dist/server.js
+```
+
+If the file is missing (ENOENT), `config` silently returns `{ configtreeValues: {} }` — no exception is thrown.
+
+### Side-effect-on-import and test environments
+
+Because `config` is evaluated at import time, point `APP_CONFIG_FILE` to a fixture before importing in tests:
+
+```typescript
+// In your test setup or at the top of the test file (before importing config)
+process.env["APP_CONFIG_FILE"] = "/path/to/test-config.yaml";
+
+const { config } = await import("configtree-loader");
+```
+
+Or use a minimal fixture file that contains only what your tests need:
+
+```yaml
+# test/fixtures/app.yaml
+configtrees: []
+```
+
 ## License
 
 MIT

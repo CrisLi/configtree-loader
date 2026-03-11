@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "fs";
 import { readdir, readFile, stat } from "fs/promises";
 import { basename, join } from "path";
+import { isNodeError } from "./utils.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,10 +25,6 @@ export interface LoadOptions {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && "code" in err;
-}
 
 /** Check that a path is an existing directory. Returns false if missing and optional=true. */
 function checkDirSync(dirPath: string, optional: boolean): boolean {

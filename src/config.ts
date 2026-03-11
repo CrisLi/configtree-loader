@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { parse } from "yaml";
 import { loadConfigTreeSync } from "./loader.js";
+import { isNodeError } from "./utils.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -12,14 +13,6 @@ export interface AppConfig {
   configtreeValues: Record<string, string>;
   /** All other top-level keys from app.yaml. */
   [key: string]: unknown;
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && "code" in err;
 }
 
 // ---------------------------------------------------------------------------
