@@ -136,9 +136,9 @@ describe("loadConfigTreeSync — array of paths", () => {
   it("throws on first missing directory when optional: false", () => {
     const dir1 = makeDir("real");
     writeFileSync(join(dir1, "KEY"), "value");
-    expect(() =>
-      loadConfigTreeSync([dir1, "/nonexistent/configtree-loader-xyz"]),
-    ).toThrow("configtree-loader: directory not found");
+    expect(() => loadConfigTreeSync([dir1, "/nonexistent/configtree-loader-xyz"])).toThrow(
+      "configtree-loader: directory not found",
+    );
   });
 
   it("returns an empty object for an empty array", () => {
@@ -246,9 +246,9 @@ describe("loadConfigTree (async) — array of paths", () => {
   it("throws on first missing directory when optional: false", async () => {
     const dir1 = makeDir("real");
     writeFileSync(join(dir1, "KEY"), "value");
-    await expect(
-      loadConfigTree([dir1, "/nonexistent/configtree-loader-xyz"]),
-    ).rejects.toThrow("configtree-loader: directory not found");
+    await expect(loadConfigTree([dir1, "/nonexistent/configtree-loader-xyz"])).rejects.toThrow(
+      "configtree-loader: directory not found",
+    );
   });
 
   it("returns an empty object for an empty array", async () => {
