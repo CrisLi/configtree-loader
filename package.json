@@ -1,6 +1,6 @@
 {
   "name": "configtree-loader",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Load Spring Boot-style configtree directories into nested config objects",
   "keywords": [
     "config",
