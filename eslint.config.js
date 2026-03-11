@@ -5,7 +5,7 @@ import prettierConfig from "eslint-config-prettier";
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", "coverage/**"],
+    ignores: ["dist/**", "node_modules/**", "coverage/**", "docs/**"],
   },
   eslint.configs.recommended,
   // Type-aware linting only for src and tests
