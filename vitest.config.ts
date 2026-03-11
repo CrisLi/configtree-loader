@@ -5,6 +5,9 @@ export default defineConfig({
     globals: false,
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    env: {
+      APP_CONFIG_FILE: "/nonexistent/__configtree-test-guard__",
+    },
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],
