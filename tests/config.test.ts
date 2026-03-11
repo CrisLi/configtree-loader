@@ -103,10 +103,7 @@ describe("_buildConfig — yaml with configtrees", () => {
   it("merges yaml top-level values alongside configtreeValues", () => {
     const dir = makeDir("db");
     writeFileSync(join(dir, "DB_HOST"), "localhost");
-    const yamlPath = writeYaml(
-      "app.yaml",
-      `configtrees:\n  - ${dir}\napp:\n  name: svc\n`,
-    );
+    const yamlPath = writeYaml("app.yaml", `configtrees:\n  - ${dir}\napp:\n  name: svc\n`);
 
     const result = _buildConfig(yamlPath);
     expect(result["app"]).toEqual({ name: "svc" });
@@ -150,10 +147,7 @@ describe("_buildConfig — configtrees edge cases", () => {
     const dir = makeDir("db");
     writeFileSync(join(dir, "DB_HOST"), "localhost");
     // Mix of valid string path and non-string entries
-    const yamlPath = writeYaml(
-      "app.yaml",
-      `configtrees:\n  - ${dir}\n  - 123\n  - true\n`,
-    );
+    const yamlPath = writeYaml("app.yaml", `configtrees:\n  - ${dir}\n  - 123\n  - true\n`);
     const result = _buildConfig(yamlPath);
     expect(result.configtreeValues).toEqual({ DB_HOST: "localhost" });
   });
@@ -171,11 +165,15 @@ describe("_buildConfig — invalid or malformed yaml", () => {
 
   it("throws when yaml top-level value is a bare string (not a mapping)", () => {
     const yamlPath = writeYaml("app.yaml", "just a string\n");
-    expect(() => _buildConfig(yamlPath)).toThrow("configtree-loader: app.yaml must be a YAML mapping");
+    expect(() => _buildConfig(yamlPath)).toThrow(
+      "configtree-loader: app.yaml must be a YAML mapping",
+    );
   });
 
   it("throws when yaml top-level value is an array (not a mapping)", () => {
     const yamlPath = writeYaml("app.yaml", "- item1\n- item2\n");
-    expect(() => _buildConfig(yamlPath)).toThrow("configtree-loader: app.yaml must be a YAML mapping");
+    expect(() => _buildConfig(yamlPath)).toThrow(
+      "configtree-loader: app.yaml must be a YAML mapping",
+    );
   });
 });

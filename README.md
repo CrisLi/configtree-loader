@@ -88,10 +88,10 @@ Synchronously loads one or more configtree directories.
 
 ### Parameters
 
-| Parameter | Type                   | Description                          |
-| --------- | ---------------------- | ------------------------------------ |
-| `dirPath` | `string \| string[]`   | Path or array of paths to load       |
-| `options` | `LoadOptions`          | Optional settings (see below)        |
+| Parameter | Type                 | Description                    |
+| --------- | -------------------- | ------------------------------ |
+| `dirPath` | `string \| string[]` | Path or array of paths to load |
+| `options` | `LoadOptions`        | Optional settings (see below)  |
 
 ### Options
 
@@ -137,10 +137,9 @@ const secrets = await loadConfigTree("/run/secrets", { optional: true });
 ### Merging Multiple Secret Mounts
 
 ```typescript
-const config = await loadConfigTree(
-  ["/etc/config/db", "/etc/config/kafka", "/etc/config/redis"],
-  { optional: true },
-);
+const config = await loadConfigTree(["/etc/config/db", "/etc/config/kafka", "/etc/config/redis"], {
+  optional: true,
+});
 ```
 
 ## License

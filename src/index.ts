@@ -1,1 +1,6 @@
-export { type ConfigObject, type LoadOptions, loadConfigTree, loadConfigTreeSync } from "./loader.js";
+export {
+  type ConfigObject,
+  type LoadOptions,
+  loadConfigTree,
+  loadConfigTreeSync,
+} from "./loader.js";
