@@ -14,7 +14,7 @@
   "author": "CrisLi",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/CrisLi/configtree-loader"
   },
   "type": "module",
   "exports": {
