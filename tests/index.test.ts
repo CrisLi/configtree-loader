@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -265,5 +265,47 @@ describe("loadConfigTree (async) — array of paths", () => {
     const syncResult = loadConfigTreeSync([dir1, dir2]);
     const asyncResult = await loadConfigTree([dir1, dir2]);
     expect(syncResult).toEqual(asyncResult);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Symlink support (Kubernetes configmap/secret volume mounts)
+// ---------------------------------------------------------------------------
+
+describe("loadConfigTreeSync — symlinks", () => {
+  it("reads symlinked files as config values", () => {
+    // Simulate Kubernetes-style symlink layout:
+    // DATABASE_HOST -> ..data/DATABASE_HOST (symlink to actual file)
+    const dataDir = makeDir("..data");
+    writeFileSync(join(dataDir, "DATABASE_HOST"), "k8s-host");
+    symlinkSync(join(dataDir, "DATABASE_HOST"), join(tmpDir, "DATABASE_HOST"));
+
+    expect(loadConfigTreeSync(tmpDir)).toEqual({ DATABASE_HOST: "k8s-host" });
+  });
+
+  it("ignores symlinks pointing to directories", () => {
+    writeFile("REAL_KEY", "value");
+    const subDir = makeDir("target-dir");
+    symlinkSync(subDir, join(tmpDir, "DIR_LINK"));
+
+    expect(loadConfigTreeSync(tmpDir)).toEqual({ REAL_KEY: "value" });
+  });
+});
+
+describe("loadConfigTree (async) — symlinks", () => {
+  it("reads symlinked files as config values", async () => {
+    const dataDir = makeDir("..data");
+    writeFileSync(join(dataDir, "DATABASE_HOST"), "k8s-host");
+    symlinkSync(join(dataDir, "DATABASE_HOST"), join(tmpDir, "DATABASE_HOST"));
+
+    await expect(loadConfigTree(tmpDir)).resolves.toEqual({ DATABASE_HOST: "k8s-host" });
+  });
+
+  it("ignores symlinks pointing to directories", async () => {
+    writeFile("REAL_KEY", "value");
+    const subDir = makeDir("target-dir");
+    symlinkSync(subDir, join(tmpDir, "DIR_LINK"));
+
+    await expect(loadConfigTree(tmpDir)).resolves.toEqual({ REAL_KEY: "value" });
   });
 });

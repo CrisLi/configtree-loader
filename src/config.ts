@@ -28,12 +28,15 @@ export interface AppConfig {
  * - `configtrees` paths are resolved relative to `process.cwd()`
  */
 export function _buildConfig(filePath: string): AppConfig {
+  console.info("[configtree-loader] loading app.yaml from: %s", filePath);
+
   // 1. Read the file
   let source: string;
   try {
     source = readFileSync(filePath, "utf8");
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === "ENOENT") {
+      console.info("[configtree-loader] app.yaml not found, using empty config");
       return { configtreeValues: {} };
     }
     throw err;
@@ -59,6 +62,11 @@ export function _buildConfig(filePath: string): AppConfig {
   for (const treePath of trees) {
     const absPath = resolve(process.cwd(), treePath);
     const entries = loadConfigTreeSync(absPath);
+    console.info(
+      "[configtree-loader] dir: %s → keys: [%s]",
+      absPath,
+      Object.keys(entries).join(", "),
+    );
     Object.assign(configtreeValues, entries);
   }
 

@@ -63,14 +63,27 @@ async function checkDirAsync(dirPath: string, optional: boolean): Promise<boolea
 /** Return paths of direct files in a directory (subdirectories are skipped). */
 function listFilesSync(dirPath: string): string[] {
   return readdirSync(dirPath, { withFileTypes: true })
-    .filter((e) => e.isFile())
+    .filter((e) => {
+      if (e.isFile()) return true;
+      if (e.isSymbolicLink()) return statSync(join(dirPath, e.name)).isFile();
+      return false;
+    })
     .map((e) => join(dirPath, e.name));
 }
 
 /** Return paths of direct files in a directory (subdirectories are skipped). */
 async function listFilesAsync(dirPath: string): Promise<string[]> {
   const entries = await readdir(dirPath, { withFileTypes: true });
-  return entries.filter((e) => e.isFile()).map((e) => join(dirPath, e.name));
+  const results: string[] = [];
+  for (const e of entries) {
+    if (e.isFile()) {
+      results.push(join(dirPath, e.name));
+    } else if (e.isSymbolicLink()) {
+      const s = await stat(join(dirPath, e.name));
+      if (s.isFile()) results.push(join(dirPath, e.name));
+    }
+  }
+  return results;
 }
 
 // ---------------------------------------------------------------------------
